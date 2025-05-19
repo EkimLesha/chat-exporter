@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "Chat Exporter",
+  "version": "1.0",
+  "description": "Экспорт чатов в Markdown", // Обязательное поле!
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png" // Нужно для Chrome Web Store
+    }
+  },
+  "permissions": ["activeTab", "scripting", "clipboardWrite"], // Добавлено clipboardWrite
+  "host_permissions": ["*://*/*"],
+  "web_accessible_resources": [
+    {
+      "resources": ["turndown.js"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  // Только для Firefox:
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "chat-exporter@yourdomain.com", // Уникальный ID
+      "strict_min_version": "109.0"
+    }
+  }
+}
