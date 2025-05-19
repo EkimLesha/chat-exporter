@@ -3,7 +3,7 @@
 Браузерное расширение для сохранения переписок из DeepSeek Chat в формат Markdown.
 
 ## 📌 Установка
-1. [Скачайте ZIP-архив](https://github.com/EkimLesha/chat-exporter/releases/latest/download/chat-exp.zip)
+1. [Скачайте ZIP-архив](https://github.com/EkimLesha/chat-exporter/releases/latest/download/chat-exporter.zip)
 2. Распакуйте в любую папку
 3. В Chrome/Edge:
    - Откройте `chrome://extensions`
