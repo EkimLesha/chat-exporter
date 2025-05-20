@@ -1,114 +1,108 @@
 document.getElementById('exportBtn').addEventListener('click', async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
+  
+  // Загружаем turndown.js
   await chrome.scripting.executeScript({
     target: { tabId: tab.id },
     files: ['turndown.js']
   });
 
+  // Выполняем основной скрипт
   chrome.scripting.executeScript({
     target: { tabId: tab.id },
     func: () => {
+      // Инициализируем Turndown с настройками для Markdown
       const turndownService = new TurndownService({
         headingStyle: 'atx',
         hr: '---',
         bulletListMarker: '-',
         codeBlockStyle: 'fenced',
+        fence: '```',
+        emDelimiter: '_',
+        strongDelimiter: '**',
+        linkStyle: 'inlined',
+        linkReferenceStyle: 'full',
         br: '\n\n'
       });
 
-      // Явные правила для таблиц
-      turndownService.addRule('tables', {
-        filter: 'table',
-        replacement: (content, node) => {
-          const rows = node.querySelectorAll('tr');
-          let mdTable = '';
-          
-          rows.forEach((row, i) => {
-            const cells = Array.from(row.querySelectorAll('td, th'))
-              .map(cell => cell.textContent.trim())
-              .join(' | ');
-            
-            mdTable += `${cells}\n`;
-            
-            // Добавляем строку разделителя после заголовка
-            if (i === 0) {
-              const alignRow = Array.from(row.querySelectorAll('td, th'))
-                .map(() => '---')
-                .join(' | ');
-              mdTable += `${alignRow}\n`;
-            }
-          });
-          
-          return mdTable;
-        }
-      });
-
-      // Улучшенная обработка блоков кода
-      turndownService.addRule('codeBlocks', {
-        filter: ['pre', 'code'],
-        replacement: (content, node) => {
-          if (node.tagName === 'PRE') {
-            const language = node.querySelector('code')?.classList?.value?.match(/language-(\w+)/)?.[1] || '';
-            return `\`\`\`${language}\n${node.textContent}\n\`\`\`\n\n`;
-          }
-          return `\`${node.textContent}\``;
-        }
-      });
-
-      // Сохранение абзацев и переносов (как в вашем коде)
-      turndownService.addRule('preserveParagraphs', {
-        filter: 'p',
-        replacement: (content) => `${content}\n\n`
-      });
-
-      turndownService.addRule('preserveLineBreaks', {
-        filter: 'br',
-        replacement: () => '\n'
-      });
-
-      // Сбор сообщений
-      const userMessages = Array.from(document.querySelectorAll('div.fbb737a4'))
-        .map(el => `> ${el.textContent.trim()}`)
-        .filter(Boolean);
-
-      const botMessages = Array.from(document.querySelectorAll('div.ds-markdown'))
-        .map(el => {
-          // Временные маркеры для переносов
-          el.querySelectorAll('p').forEach(p => {
-            p.innerHTML = p.innerHTML.replace(/\n/g, '␤');
-          });
-          
-          let md = turndownService.turndown(el.innerHTML)
-            .replace(/␤/g, '\n')
-            .replace(/\n{3,}/g, '\n\n'); // Убираем лишние переносы
-          
-          return md;
-        })
-        .filter(Boolean);
-
-      // Формирование итогового Markdown
-      let markdownOutput = [];
-      const maxLength = Math.max(userMessages.length, botMessages.length);
+      // Кастомные правила для DeepSeek Chat
       
-      for (let i = 0; i < maxLength; i++) {
-        if (userMessages[i]) markdownOutput.push(`${userMessages[i]}\n\n`);
-        if (botMessages[i]) markdownOutput.push(`${botMessages[i]}\n\n---\n`);
-      }
+      // 1. Обработка блоков кода
+      turndownService.addRule('deepseekCodeBlock', {
+        filter: node => {
+          return node.classList?.contains('ds-code-block') || 
+                 node.querySelector('.ds-code-block')
+        },
+        replacement: (content, node) => {
+          // Получаем язык программирования
+          const codeBlock = node.querySelector('.ds-code-block') || node;
+          const language = Array.from(codeBlock.classList)
+            .find(c => c.startsWith('language-'))?.replace('language-', '') || '';
+          
+          // Очищаем от кнопок и лишнего текста
+          const codeContent = codeBlock.textContent
+            .replace(/\b(Copy|Download|python|javascript)\b/gi, '')
+            .replace(/^\n+|\n+$/g, '');
+          
+          return `\`\`\`${language}\n${codeContent}\n\`\`\`\n\n`;
+        }
+      });
 
-      return markdownOutput.join('\n');
+      // 2. Обработка инлайн-кода
+      turndownService.addRule('deepseekInlineCode', {
+        filter: node => node.classList?.contains('ds-inline-code'),
+        replacement: content => `\`${content.replace(/`/g, '\\`').trim()}\``
+      });
+
+      // 3. Обработка сообщений пользователя
+      turndownService.addRule('userMessages', {
+        filter: node => node.classList?.contains('fbb737a4'),
+        replacement: content => `> ${content.trim()}\n\n`
+      });
+
+      // 4. Обработка сообщений бота
+      turndownService.addRule('botMessages', {
+        filter: node => node.classList?.contains('ds-markdown'),
+        replacement: (content, node) => {
+          // Сохраняем форматирование, но чистим лишние элементы
+          const cleanHtml = node.innerHTML
+            .replace(/<button[^>]*>.*?<\/button>/g, '') // Удаляем кнопки
+            .replace(/<span class="[^"]*copy-text[^"]*">.*?<\/span>/g, '');
+          
+          return turndownService.turndown(cleanHtml) + '\n\n---\n';
+        }
+      });
+
+      // 5. Удаляем ненужные элементы интерфейса
+      turndownService.remove('.msg-actions'); // Кнопки "Копировать" и т.д.
+      turndownService.remove('.timestamp');   // Временные метки
+
+      // Собираем все сообщения
+      const chatContainer = document.querySelector('.chat-container') || document.body;
+      const markdown = turndownService.turndown(chatContainer);
+
+      // Пост-обработка
+      return markdown
+        .replace(/\n{3,}/g, '\n\n')  // Удаляем лишние переносы
+        .replace(/```\s*\n/g, '```\n') // Чистим блоки кода
+        .trim();
     }
   }, (results) => {
-    const markdown = results[0]?.result || "Ошибка экспорта";
+    const markdown = results[0]?.result || "Не удалось экспортировать переписку";
+    
+    // Пытаемся скопировать в буфер обмена
     navigator.clipboard.writeText(markdown)
-      .then(() => alert("Готово! Таблицы и код теперь сохраняются правильно."))
+      .then(() => alert("Переписка скопирована в Markdown!"))
       .catch(() => {
+        // Fallback: скачиваем как файл
         const blob = new Blob([markdown], { type: 'text/markdown' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `chat-export-${new Date().getTime()}.md`;
+        a.download = `deepseek-chat-${new Date().toISOString().slice(0,10)}.md`;
+        document.body.appendChild(a);
         a.click();
+        document.body.removeChild(a);
       });
   });
 });
