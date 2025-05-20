@@ -14,51 +14,86 @@ document.getElementById('exportBtn').addEventListener('click', async () => {
         hr: '---',
         bulletListMarker: '-',
         codeBlockStyle: 'fenced',
-        br: '\n', // Важно: сохраняем переносы строк
-        blankReplacement: (content, node) => {
-          return node.isBlock ? '\n\n' : ''; // Двойной перенос для абзацев
+        br: '\n\n'
+      });
+
+      // Явные правила для таблиц
+      turndownService.addRule('tables', {
+        filter: 'table',
+        replacement: (content, node) => {
+          const rows = node.querySelectorAll('tr');
+          let mdTable = '';
+          
+          rows.forEach((row, i) => {
+            const cells = Array.from(row.querySelectorAll('td, th'))
+              .map(cell => cell.textContent.trim())
+              .join(' | ');
+            
+            mdTable += `${cells}\n`;
+            
+            // Добавляем строку разделителя после заголовка
+            if (i === 0) {
+              const alignRow = Array.from(row.querySelectorAll('td, th'))
+                .map(() => '---')
+                .join(' | ');
+              mdTable += `${alignRow}\n`;
+            }
+          });
+          
+          return mdTable;
         }
       });
 
-      // Кастомные правила для DeepSeek Chat
+      // Улучшенная обработка блоков кода
+      turndownService.addRule('codeBlocks', {
+        filter: ['pre', 'code'],
+        replacement: (content, node) => {
+          if (node.tagName === 'PRE') {
+            const language = node.querySelector('code')?.classList?.value?.match(/language-(\w+)/)?.[1] || '';
+            return `\`\`\`${language}\n${node.textContent}\n\`\`\`\n\n`;
+          }
+          return `\`${node.textContent}\``;
+        }
+      });
+
+      // Сохранение абзацев и переносов (как в вашем коде)
       turndownService.addRule('preserveParagraphs', {
         filter: 'p',
-        replacement: (content) => `${content}\n\n` // Двойной перенос после абзацев
+        replacement: (content) => `${content}\n\n`
       });
 
       turndownService.addRule('preserveLineBreaks', {
         filter: 'br',
-        replacement: () => '\n' // Одинарный перенос для <br>
+        replacement: () => '\n'
       });
 
-      // Сбор сообщений с сохранением структуры
+      // Сбор сообщений
       const userMessages = Array.from(document.querySelectorAll('div.fbb737a4'))
         .map(el => `> ${el.textContent.trim()}`)
         .filter(Boolean);
 
       const botMessages = Array.from(document.querySelectorAll('div.ds-markdown'))
         .map(el => {
-          // Добавляем временные маркеры для абзацев
+          // Временные маркеры для переносов
           el.querySelectorAll('p').forEach(p => {
-            p.innerHTML = p.innerHTML.replace(/\n/g, '␤') // Сохраняем переносы
+            p.innerHTML = p.innerHTML.replace(/\n/g, '␤');
           });
-          let md = turndownService.turndown(el.innerHTML);
-          md = md.replace(/␤/g, '\n'); // Восстанавливаем переносы
+          
+          let md = turndownService.turndown(el.innerHTML)
+            .replace(/␤/g, '\n')
+            .replace(/\n{3,}/g, '\n\n'); // Убираем лишние переносы
+          
           return md;
         })
         .filter(Boolean);
 
-      // Формируем переписку с правильными отступами
+      // Формирование итогового Markdown
       let markdownOutput = [];
       const maxLength = Math.max(userMessages.length, botMessages.length);
       
       for (let i = 0; i < maxLength; i++) {
-        if (userMessages[i]) {
-          markdownOutput.push(`${userMessages[i]}\n\n`);
-        }
-        if (botMessages[i]) {
-          markdownOutput.push(`${botMessages[i]}\n\n---\n`);
-        }
+        if (userMessages[i]) markdownOutput.push(`${userMessages[i]}\n\n`);
+        if (botMessages[i]) markdownOutput.push(`${botMessages[i]}\n\n---\n`);
       }
 
       return markdownOutput.join('\n');
@@ -66,7 +101,7 @@ document.getElementById('exportBtn').addEventListener('click', async () => {
   }, (results) => {
     const markdown = results[0]?.result || "Ошибка экспорта";
     navigator.clipboard.writeText(markdown)
-      .then(() => alert("Готово! Переписка с сохранёнными абзацами скопирована."))
+      .then(() => alert("Готово! Таблицы и код теперь сохраняются правильно."))
       .catch(() => {
         const blob = new Blob([markdown], { type: 'text/markdown' });
         const url = URL.createObjectURL(blob);
